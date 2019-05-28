@@ -38,7 +38,6 @@ X_opt[:,[0]] = x0
 J_opt = 0
 xf = np.array([[0],[0]])
 
-
 obj = 0.0
 for i in range(0,T_tot):
     X = cp.Variable((n,T+1))
@@ -58,8 +57,7 @@ for i in range(0,T_tot):
         obj += cp.atoms.quad_form(U[:,j], R)
 
     obj += cp.atoms.quad_form(X[:,T], Q)
-    
-
+  
 
     # pdb.set_trace()
     prob = cp.Problem(cp.Minimize(obj),constraints)
@@ -81,6 +79,8 @@ plt.plot(X_opt[0,:],X_opt[1,:])
 plt.show()
 pdb.set_trace()
 # prob = generateProblem(A,B,P,Q);
+
+
 
 # ctrl = MPC_Controller();
 ''' MATLAB output
