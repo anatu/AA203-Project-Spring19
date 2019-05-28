@@ -5,8 +5,8 @@ import cvxpy as cp
 import pdb
 import matplotlib.pyplot as plt
 
-from mpc import MPC_Controller
-from to_cvx_problem import CVX_Problem
+# from mpc import MPC_Controller
+# from to_cvx_problem import CVX_Problem
 
 A = np.array([[1,1],[0,1]])
 B = np.array([[0],[1]])
@@ -14,7 +14,7 @@ B = np.array([[0],[1]])
 n,m = np.shape(B)
 P = np.eye(n)
 Q = np.eye(n)
-R = 10
+R = 10*np.eye(m)
 
 Phalf = sp.linalg.sqrtm(P)
 Qhalf = sp.linalg.sqrtm(Q)
@@ -38,6 +38,8 @@ X_opt[:,[0]] = x0
 J_opt = 0
 xf = np.array([[0],[0]])
 
+
+obj = 0.0
 for i in range(0,T_tot):
     X = cp.Variable((n,T+1))
     U = cp.Variable((m,T))
@@ -47,15 +49,17 @@ for i in range(0,T_tot):
                       cp.max(U) <= u_max,
                       cp.min(U) >= u_min,
                       X[:,[0]] == x0,
-#                      X[:,[-1]] == xf,o
+#                      X[:,[-1]] == xf
                       X[:,1:] == cp.matmul(A,X[:,:-1])+cp.matmul(B,U)
                 ]
 
-    # for j in range(T):
-    #     constraints.append( X[:,[j+1]] == cp.matmul(A,X[:,[j]]) + cp.matmul(B,U[:,[j]]) )
-    #
+    for j in range(T):
+        obj += cp.atoms.quad_form(X[:,j], Q)
+        obj += cp.atoms.quad_form(U[:,j], R)
 
-    obj = cp.norm(Phalf*X[:,[-1]],2) + cp.norm(  cp.bmat([ [Qhalf*X[:,:-1]], [Rhalf * U]]),2)
+    obj += cp.atoms.quad_form(X[:,T], Q)
+    
+
 
     # pdb.set_trace()
     prob = cp.Problem(cp.Minimize(obj),constraints)
