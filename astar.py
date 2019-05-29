@@ -73,16 +73,18 @@ class AStar(object):
     # OUTPUT: List of neighbors that are free, as a list of TUPLES
     def get_neighbors(self, x):
         # TODO: fill me in!
-        free_neighbors = []
-        for i in range(-1,2):
-            for j in range(-1,2):
-                x_check = AStar.snap_to_grid(self,(x[0] + i*self.resolution, x[1] + j*self.resolution))
-                if AStar.is_free(self,x_check) == True:
-                    free_neighbors.append(x_check)
+        x0, y0 = x
+        delta = self.resolution
+        dx = [0., 0., -delta, delta, delta, delta, -delta, -delta]
+        dy = [-delta, delta, 0., 0., -delta, delta, -delta, delta]
         
-        free_neighbors.remove(x)
+        neighbors = []
+        for i in range(8):
+            neighbor = self.snap_to_grid((x0+dx[i], y0+dy[i]))
+            if self.is_free(neighbor):
+                neighbors.append(neighbor)
 
-        return free_neighbors
+        return neighbors
 
 
     # Gets the state in open_set that has the lowest f_score
@@ -114,7 +116,6 @@ class AStar(object):
         fig = plt.figure()
 
         self.occupancy.plot(fig.number)
-
         solution_path = np.array(self.path) * self.resolution
         plt.plot(solution_path[:,0],solution_path[:,1], color="green", linewidth=2, label="solution path", zorder=10)
         plt.scatter([self.x_init[0]*self.resolution, self.x_goal[0]*self.resolution], [self.x_init[1]*self.resolution, self.x_goal[1]*self.resolution], color="green", s=30, zorder=10)
@@ -194,6 +195,14 @@ x_goal = (8,8)
 obstacles = [((6,6),(8,7)),((2,1),(4,2)),((2,4),(4,6)),((6,2),(8,4))]
 occupancy = DetOccupancyGrid2D(width, height, obstacles)
 
+astar = AStar((0, 0), (width, height), x_init, x_goal, occupancy)
+
+if not astar.solve():
+    print("No path found")
+    exit(0)
+
+astar.plot_path()
+
 # A large random example
 # width = 101
 # height = 101
@@ -212,11 +221,3 @@ occupancy = DetOccupancyGrid2D(width, height, obstacles)
 # while not (occupancy.is_free(x_init) and occupancy.is_free(x_goal)):
 #     x_init = tuple(np.random.randint(0,width-2,2).tolist())
 #     x_goal = tuple(np.random.randint(0,height-2,2).tolist())
-
-astar = AStar((0, 0), (width, height), x_init, x_goal, occupancy)
-
-if not astar.solve():
-    print("No path found")
-    exit(0)
-
-astar.plot_path()
