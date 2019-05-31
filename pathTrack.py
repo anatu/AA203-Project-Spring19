@@ -10,6 +10,7 @@ import cvxpy
 import math
 import numpy as np
 import sys
+from datetime import datetime
 sys.path.append("../../PathPlanning/CubicSpline/")
 
 try:
@@ -375,8 +376,9 @@ def do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state):
     dl: course tick [m]
 
     """
-
+    time = 0.0
     goal = [cx[-1], cy[-1]]
+    # goal = [np.sin(time), np.cos(time)]
 
     state = initial_state
 
@@ -386,7 +388,7 @@ def do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state):
     elif state.yaw - cyaw[0] <= -math.pi:
         state.yaw += math.pi * 2.0
 
-    time = 0.0
+    
     x = [state.x]
     y = [state.y]
     yaw = [state.yaw]
@@ -401,6 +403,14 @@ def do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state):
     cyaw = smooth_yaw(cyaw)
 
     while MAX_TIME >= time:
+        ax = [0.0, 30.0, 35.0+10.0*np.sin(time)]
+        ay = [0.0, 0.0, 20.0+time]
+        cx, cy, cyaw, ck, s = cubic_spline_planner.calc_spline_course(
+        ax, ay, ds=dl)
+        # cx[-2] =cx[-2]+np.cos(time)
+        # cy[-2] = cy[-2]+np.sin(time)
+        # print(len(cx))
+
         xref, target_ind, dref = calc_ref_trajectory(
             state, cx, cy, cyaw, ck, sp, dl, target_ind)
 
@@ -422,6 +432,10 @@ def do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state):
         t.append(time)
         d.append(di)
         a.append(ai)
+
+        date = "-".join([str(datetime.now().hour), str(datetime.now().minute), str(datetime.now().second), str(datetime.now().month), str(datetime.now().day)])
+        fname = "pathTrackPlot_{}".format(date)
+        plt.savefig(fname)
 
         if check_goal(state, goal, target_ind, len(cx)):
             print("Goal")
@@ -545,7 +559,6 @@ def get_switch_back_course(dl):
 
     return cx, cy, cyaw, ck
 
-
 def main():
     print(__file__ + " start!!")
 
@@ -554,6 +567,44 @@ def main():
     # cx, cy, cyaw, ck = get_straight_course2(dl)
     # cx, cy, cyaw, ck = get_straight_course3(dl)
     # cx, cy, cyaw, ck = get_forward_course(dl)
+    
+    cx, cy, cyaw, ck = get_switch_back_course(dl)
+
+    sp = calc_speed_profile(cx, cy, cyaw, TARGET_SPEED)
+
+    initial_state = State(x=cx[0], y=cy[0], yaw=cyaw[0], v=0.0)
+
+    t, x, y, yaw, v, d, a = do_simulation(
+        cx, cy, cyaw, ck, sp, dl, initial_state)
+
+    if show_animation:  # pragma: no cover
+        plt.close("all")
+        plt.subplots()
+        plt.plot(cx, cy, "-r", label="spline")
+        plt.plot(x, y, "-g", label="tracking")
+        plt.grid(True)
+        plt.axis("equal")
+        plt.xlabel("x[m]")
+        plt.ylabel("y[m]")
+        plt.legend()
+
+        plt.subplots()
+        plt.plot(t, v, "-r", label="speed")
+        plt.grid(True)
+        plt.xlabel("Time [s]")
+        plt.ylabel("Speed [kmh]")
+
+        plt.show()
+
+def main3():
+    print(__file__ + " start!!")
+
+    dl = 1.0  # course tick
+    # cx, cy, cyaw, ck = get_straight_course(dl)
+    # cx, cy, cyaw, ck = get_straight_course2(dl)
+    # cx, cy, cyaw, ck = get_straight_course3(dl)
+    # cx, cy, cyaw, ck = get_forward_course(dl)
+
     cx, cy, cyaw, ck = get_switch_back_course(dl)
 
     sp = calc_speed_profile(cx, cy, cyaw, TARGET_SPEED)
