@@ -33,7 +33,7 @@ STOP_SPEED = 0.5 / 3.6  # stop speed
 MAX_TIME = 500.0  # max simulation time
 
 # iterative paramter
-MAX_ITER = 3  # Max iteration
+MAX_ITER = 5  # Max iteration
 DU_TH = 0.1  # iteration finish param
 
 TARGET_SPEED = 10.0 / 3.6  # [m/s] target speed
@@ -407,9 +407,6 @@ def do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state):
         ay = [0.0, 0.0, 20.0+time]
         cx, cy, cyaw, ck, s = cubic_spline_planner.calc_spline_course(
         ax, ay, ds=dl)
-        # cx[-2] =cx[-2]+np.cos(time)
-        # cy[-2] = cy[-2]+np.sin(time)
-        # print(len(cx))
 
         xref, target_ind, dref = calc_ref_trajectory(
             state, cx, cy, cyaw, ck, sp, dl, target_ind)
