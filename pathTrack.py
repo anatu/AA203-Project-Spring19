@@ -209,8 +209,6 @@ def update_state_with_noise(state, a, delta):
     return state
 
 
-
-
 def get_nparray_from_matrix(x):
     return np.array(x).flatten()
 
@@ -305,6 +303,7 @@ def linear_mpc_control(xref, xbar, x0, dref):
         # noise = np.random.normal(loc=0.0, scale=0.7, size=(NX))
         constraints += [x[:, t + 1] == A * x[:, t] + B * u[:, t] + C]
 
+
         if t < (T - 1):
             cost += cvxpy.quad_form(u[:, t + 1] - u[:, t], Rd)
             constraints += [cvxpy.abs(u[1, t + 1] - u[1, t]) <=
@@ -313,6 +312,11 @@ def linear_mpc_control(xref, xbar, x0, dref):
     cost += cvxpy.quad_form(xref[:, T] - x[:, T], Qf)
 
     constraints += [x[:, 0] == x0]
+    # Terminal state constraint - must be able to track the reference
+    # position at the end of the horizon within some margin of error
+    # measured by Euclidean (x,y) distance
+    DIST_TOL = 10.0
+    constraints += [cvxpy.norm(x[0:2,T] - xref[0:2,T]) <= DIST_TOL]
     constraints += [x[2, :] <= MAX_SPEED]
     constraints += [x[2, :] >= MIN_SPEED]
     constraints += [cvxpy.abs(u[0, :]) <= MAX_ACCEL]
