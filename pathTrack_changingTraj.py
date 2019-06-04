@@ -10,6 +10,11 @@ import cvxpy
 import math
 import numpy as np
 import sys
+<<<<<<< HEAD:pathTrack_changingTraj.py
+=======
+import scipy
+import datetime
+>>>>>>> a056777769725bdf1820696836b8a3399ee88cff:pathTrack.py
 from datetime import datetime
 sys.path.append("../../PathPlanning/CubicSpline/")
 
@@ -183,6 +188,29 @@ def update_state(state, a, delta):
 
     return state
 
+def update_state_with_noise(state, a, delta):
+    '''
+    Updates the state of the vehicle with Gaussian white noise
+    '''
+    noise = 0.2*np.random.randn()
+    # input check
+    if delta >= MAX_STEER:
+        delta = MAX_STEER
+    elif delta <= -MAX_STEER:
+        delta = -MAX_STEER
+
+    state.x = state.x + state.v * math.cos(state.yaw) * DT + noise
+    state.y = state.y + state.v * math.sin(state.yaw) * DT + noise
+    state.yaw = state.yaw + state.v / WB * math.tan(delta) * DT + noise
+    state.v = state.v + a * DT + noise
+
+    if state. v > MAX_SPEED:
+        state.v = MAX_SPEED
+    elif state. v < MIN_SPEED:
+        state.v = MIN_SPEED
+
+    return state
+
 
 def get_nparray_from_matrix(x):
     return np.array(x).flatten()
@@ -218,7 +246,7 @@ def predict_motion(x0, oa, od, xref):
 
     state = State(x=x0[0], y=x0[1], yaw=x0[3], v=x0[2])
     for (ai, di, i) in zip(oa, od, range(1, T + 1)):
-        state = update_state(state, ai, di)
+        state = update_state_with_noise(state, ai, di)
         xbar[0, i] = state.x
         xbar[1, i] = state.y
         xbar[2, i] = state.v
@@ -273,7 +301,11 @@ def linear_mpc_control(xref, xbar, x0, dref):
 
         A, B, C = get_linear_model_matrix(
             xbar[2, t], xbar[3, t], dref[0, t])
+        # NOTE: Should not add noise directly do constraint since cvxpy
+        # should solve on the model free dynamics
+        # noise = np.random.normal(loc=0.0, scale=0.7, size=(NX))
         constraints += [x[:, t + 1] == A * x[:, t] + B * u[:, t] + C]
+
 
         if t < (T - 1):
             cost += cvxpy.quad_form(u[:, t + 1] - u[:, t], Rd)
@@ -283,6 +315,11 @@ def linear_mpc_control(xref, xbar, x0, dref):
     cost += cvxpy.quad_form(xref[:, T] - x[:, T], Qf)
 
     constraints += [x[:, 0] == x0]
+    # Terminal state constraint - must be able to track the reference
+    # position at the end of the horizon within some margin of error
+    # measured by Euclidean (x,y) distance
+    DIST_TOL = 10.0
+    constraints += [cvxpy.norm(x[0:2,T] - xref[0:2,T]) <= DIST_TOL]
     constraints += [x[2, :] <= MAX_SPEED]
     constraints += [x[2, :] >= MIN_SPEED]
     constraints += [cvxpy.abs(u[0, :]) <= MAX_ACCEL]
@@ -300,7 +337,11 @@ def linear_mpc_control(xref, xbar, x0, dref):
         odelta = get_nparray_from_matrix(u.value[1, :])
 
     else:
-        print("Error: Cannot solve mpc..")
+        print("ERROR: Cannot solve MPC! CVXPY failed with status {}".format(prob.status))
+        date = "-".join([str(datetime.now().month), str(datetime.now().day)])
+        fname = "pathTrackPlot_{}".format(date)
+        plt.savefig(fname)
+        sys.exit(1)
         oa, odelta, ox, oy, oyaw, ov = None, None, None, None, None, None
 
     return oa, odelta, ox, oy, oyaw, ov
@@ -418,7 +459,7 @@ def do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state):
         if odelta is not None:
             di, ai = odelta[0], oa[0]
 
-        state = update_state(state, ai, di)
+        state = update_state_with_noise(state, ai, di)
         time = time + DT
 
         x.append(state.x)
