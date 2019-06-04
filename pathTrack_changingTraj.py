@@ -408,8 +408,7 @@ def do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state):
         cx, cy, cyaw, ck, s = cubic_spline_planner.calc_spline_course(
         ax, ay, ds=dl)
 
-        xref, target_ind, dref = calc_ref_trajectory(
-            state, cx, cy, cyaw, ck, sp, dl, target_ind)
+        xref, target_ind, dref = calc_ref_trajectory(state, cx, cy, cyaw, ck, sp, dl, target_ind)
 
         x0 = [state.x, state.y, state.v, state.yaw]  # current state
 
@@ -432,7 +431,7 @@ def do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state):
 
         date = "-".join([str(datetime.now().hour), str(datetime.now().minute), str(datetime.now().second), str(datetime.now().month), str(datetime.now().day)])
         fname = "pathTrackPlot_{}".format(date)
-        plt.savefig(fname)
+        # plt.savefig(fname)
 
         if check_goal(state, goal, target_ind, len(cx)):
             print("Goal")
@@ -571,8 +570,7 @@ def main():
 
     initial_state = State(x=cx[0], y=cy[0], yaw=cyaw[0], v=0.0)
 
-    t, x, y, yaw, v, d, a = do_simulation(
-        cx, cy, cyaw, ck, sp, dl, initial_state)
+    t, x, y, yaw, v, d, a = do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state)
 
     if show_animation:  # pragma: no cover
         plt.close("all")
