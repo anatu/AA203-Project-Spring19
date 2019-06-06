@@ -10,8 +10,6 @@ import cvxpy
 import math
 import numpy as np
 import sys
-import scipy
-import datetime
 from datetime import datetime
 sys.path.append("../../PathPlanning/CubicSpline/")
 
@@ -35,7 +33,7 @@ STOP_SPEED = 0.5 / 3.6  # stop speed
 MAX_TIME = 500.0  # max simulation time
 
 # iterative paramter
-MAX_ITER = 3  # Max iteration
+MAX_ITER = 5  # Max iteration
 DU_TH = 0.1  # iteration finish param
 
 TARGET_SPEED = 10.0 / 3.6  # [m/s] target speed
@@ -57,8 +55,6 @@ MAX_DSTEER = np.deg2rad(30.0)  # maximum steering speed [rad/s]
 MAX_SPEED = 55.0 / 3.6  # maximum speed [m/s]
 MIN_SPEED = -20.0 / 3.6  # minimum speed [m/s]
 MAX_ACCEL = 1.0  # maximum accel [m/ss]
-
-MAX_NOISE = 0.5 # max bound on noise in system
 
 show_animation = True
 
@@ -187,51 +183,6 @@ def update_state(state, a, delta):
 
     return state
 
-def update_state_with_noise(state, a, delta):
-    '''
-    Updates the state of the vehicle with Gaussian white noise
-    '''
-    noise = 0.2*np.random.randn()
-    # input check
-    if delta >= MAX_STEER:
-        delta = MAX_STEER
-    elif delta <= -MAX_STEER:
-        delta = -MAX_STEER
-
-    state.x = state.x + state.v * math.cos(state.yaw) * DT + noise
-    state.y = state.y + state.v * math.sin(state.yaw) * DT + noise
-    state.yaw = state.yaw + state.v / WB * math.tan(delta) * DT + noise
-    state.v = state.v + a * DT + noise
-
-    if state. v > MAX_SPEED:
-        state.v = MAX_SPEED
-    elif state. v < MIN_SPEED:
-        state.v = MIN_SPEED
-
-    return state
-
-def update_state_with_unif(state, a, delta):
-    '''
-    Updates the state of the vehicle with Uniform bounded noise
-    '''
-    noise = MAX_NOISE*np.random.uniform(-1,1)
-    # input check
-    if delta >= MAX_STEER:
-        delta = MAX_STEER
-    elif delta <= -MAX_STEER:
-        delta = -MAX_STEER
-
-    state.x = state.x + state.v * math.cos(state.yaw) * DT + noise
-    state.y = state.y + state.v * math.sin(state.yaw) * DT + noise
-    state.yaw = state.yaw + state.v / WB * math.tan(delta) * DT + noise
-    state.v = state.v + a * DT + noise
-
-    if state. v > MAX_SPEED:
-        state.v = MAX_SPEED
-    elif state. v < MIN_SPEED:
-        state.v = MIN_SPEED
-
-    return state
 
 def get_nparray_from_matrix(x):
     return np.array(x).flatten()
@@ -267,7 +218,7 @@ def predict_motion(x0, oa, od, xref):
 
     state = State(x=x0[0], y=x0[1], yaw=x0[3], v=x0[2])
     for (ai, di, i) in zip(oa, od, range(1, T + 1)):
-        state = update_state_with_unif(state, ai, di)
+        state = update_state(state, ai, di)
         xbar[0, i] = state.x
         xbar[1, i] = state.y
         xbar[2, i] = state.v
@@ -297,162 +248,11 @@ def iterative_linear_mpc_control(xref, x0, dref, oa, od):
 
     return oa, od, ox, oy, oyaw, ov
 
-def max_objective_1(k,xref,xbar,x0,dref):
-    x = cvxpy.Variable((NX, T + 1))
-    u = cvxpy.Variable((NU, T))
-
-    cost = 0.0
-    constraints = []
-    g = 0.0
-    for t in range(T):
-        cost += cvxpy.quad_form(u[:, t], R)
-
-        if t != 0:
-            cost += cvxpy.quad_form(xref[:, t] - x[:, t], Q)
-
-        A, B, C = get_linear_model_matrix(
-            xbar[2, t], xbar[3, t], dref[0, t])
-        # NOTE: Should not add noise directly do constraint since cvxpy
-        # should solve on the model free dynamics
-        # noise = np.random.normal(loc=0.0, scale=0.7, size=(NX))
-        constraints += [x[:, t + 1] == A * x[:, t] + B * u[:, t] + C]
-
-
-        if t < (T - 1):
-            cost += cvxpy.quad_form(u[:, t + 1] - u[:, t], Rd)
-            constraints += [cvxpy.abs(u[1, t + 1] - u[1, t]) <= \
-                            MAX_DSTEER * DT]
-
-    cost += cvxpy.quad_form(xref[:, T] - x[:, T], Qf)
-
-    constraints += [x[:, 0] == x0]
-    # Terminal state constraint - must be able to track the reference
-    # position at the end of the horizon within some margin of error
-    # measured by Euclidean (x,y) distance
-    DIST_TOL = 2.0
-    constraints += [cvxpy.norm(x[0:2,T] - xref[0:2,T]) <= DIST_TOL]
-    constraints += [x[2, :] <= MAX_SPEED]
-    constraints += [x[2, :] >= MIN_SPEED]
-    constraints += [cvxpy.abs(u[0, :]) <= MAX_ACCEL]
-    constraints += [cvxpy.abs(u[1, :]) <= MAX_STEER]
-
-    prob = cvxpy.Problem(cvxpy.Minimize(cost), constraints)
-    prob.solve(solver=cvxpy.ECOS, verbose=False)
-
-    if prob.status == cvxpy.OPTIMAL or prob.status == cvxpy.OPTIMAL_INACCURATE:
-        ox = get_nparray_from_matrix(x.value[0, :])
-        oy = get_nparray_from_matrix(x.value[1, :])
-        ov = get_nparray_from_matrix(x.value[2, :])
-        oyaw = get_nparray_from_matrix(x.value[3, :])
-        oa = get_nparray_from_matrix(u.value[0, :])
-        odelta = get_nparray_from_matrix(u.value[1, :])
-
-        ox_all = x.value[:,:]
-        ou_all = u.value[:,:]
-
-    else:
-        print("ERROR: Cannot solve MPC! CVXPY failed with status {}".format(prob.status))
-        date = "-".join([str(datetime.now().month), str(datetime.now().day)])
-        fname = "pathTrackPlot_{}".format(date)
-        print('failed in max_objective')
-        # plt.savefig(fname)
-        sys.exit(1)
-        oa, odelta, ox, oy, oyaw, ov = None, None, None, None, None, None
-
-    for tk in range(k,T):
-        print(np.linalg.norm(ox_all[0:2,tk]- xref[0:2,tk]))
-        if np.linalg.norm(ox_all[0:2,tk]- xref[0:2,tk]) >= DIST_TOL:
-            g = g + np.matmul(np.transpose(ox_all[:,tk]),np.matmul(Q,ox_all[:,tk]))+np.matmul(np.transpose(ou_all[:,tk]),np.matmul(R,ou_all[:,tk]))
-
-    return g
-
-
-def max_objective(k,xref,xbar,x0,dref):
-
-    for tk in range(k,T):
-        print(np.linalg.norm(ox_all[0:2,tk]- xref[0:2,tk]))
-        if np.linalg.norm(ox_all[0:2,tk]- xref[0:2,tk]) >= DIST_TOL:
-            g = g + np.matmul(np.transpose(ox_all[:,tk]),np.matmul(Q,ox_all[:,tk]))+np.matmul(np.transpose(ou_all[:,tk]),np.matmul(R,ou_all[:,tk]))
-
-    return g
 
 def linear_mpc_control(xref, xbar, x0, dref):
     """
     linear mpc control
-    xref: reference point
-    xbar: operational point
-    x0: initial state
-    dref: reference steer angle
-    """
 
-    x = cvxpy.Variable((NX, T + 1))
-    u = cvxpy.Variable((NU, T))
-
-    cost = 0.0
-    constraints = []
-
-    for t in range(T):
-        # g = max_objective(t,xref,xbar,x0,dref)
-        # print(g)
-        cost += cvxpy.quad_form(u[:, t], R)
-
-        if t != 0:
-            cost += cvxpy.quad_form(xref[:, t] - x[:, t], Q)
-
-        A, B, C = get_linear_model_matrix(
-            xbar[2, t], xbar[3, t], dref[0, t])
-        # NOTE: Should not add noise directly do constraint since cvxpy
-        # should solve on the model free dynamics
-        # noise = np.random.normal(loc=0.0, scale=0.7, size=(NX))
-        constraints += [x[:, t + 1] >= A * x[:, t] + B * u[:, t] + C - MAX_NOISE]
-        constraints += [x[:, t + 1] <= A * x[:, t] + B * u[:, t] + C + MAX_NOISE]
-
-        if t < (T - 1):
-            cost += cvxpy.quad_form(u[:, t + 1] - u[:, t], Rd)
-            constraints += [cvxpy.abs(u[1, t + 1] - u[1, t]) <=
-                            MAX_DSTEER * DT]
-
-    cost += cvxpy.quad_form(xref[:, T] - x[:, T], Qf)
-
-    constraints += [x[:, 0] == x0]
-    # Terminal state constraint - must be able to track the reference
-    # position at the end of the horizon within some margin of error
-    # measured by Euclidean (x,y) distance
-    DIST_TOL = 2.0
-    constraints += [cvxpy.norm(x[0:2,T] - xref[0:2,T]) <= DIST_TOL]
-    constraints += [x[2, :] <= MAX_SPEED]
-    constraints += [x[2, :] >= MIN_SPEED]
-    constraints += [cvxpy.abs(u[0, :]) <= MAX_ACCEL]
-    constraints += [cvxpy.abs(u[1, :]) <= MAX_STEER]
-
-    prob = cvxpy.Problem(cvxpy.Minimize(cost), constraints)
-    prob.solve(solver=cvxpy.ECOS, verbose=False)
-
-    if prob.status == cvxpy.OPTIMAL or prob.status == cvxpy.OPTIMAL_INACCURATE:
-        ox = get_nparray_from_matrix(x.value[0, :])
-        oy = get_nparray_from_matrix(x.value[1, :])
-        ov = get_nparray_from_matrix(x.value[2, :])
-        oyaw = get_nparray_from_matrix(x.value[3, :])
-        oa = get_nparray_from_matrix(u.value[0, :])
-        odelta = get_nparray_from_matrix(u.value[1, :])
-
-        ox_all = x.value[:,:]
-        ou_all = u.value[:,:]
-
-    else:
-        print("ERROR: Cannot solve MPC! CVXPY failed with status {}".format(prob.status))
-        date = "-".join([str(datetime.now().month), str(datetime.now().day)])
-        fname = "pathTrackPlot_{}".format(date)
-        print('failed in linear_mpc_control')
-        # plt.savefig(fname)
-        sys.exit(1)
-        oa, odelta, ox, oy, oyaw, ov = None, None, None, None, None, None
-
-    return oa, odelta, ox, oy, oyaw, ov
-
-def linear_mpc_control_orig(xref, xbar, x0, dref):
-    """
-    linear mpc control
     xref: reference point
     xbar: operational point
     x0: initial state
@@ -473,12 +273,8 @@ def linear_mpc_control_orig(xref, xbar, x0, dref):
 
         A, B, C = get_linear_model_matrix(
             xbar[2, t], xbar[3, t], dref[0, t])
-        # NOTE: Should not add noise directly do constraint since cvxpy
-        # should solve on the model free dynamics
-        # noise = np.random.normal(loc=0.0, scale=0.7, size=(NX))
         constraints += [x[:, t + 1] == A * x[:, t] + B * u[:, t] + C]
 
-
         if t < (T - 1):
             cost += cvxpy.quad_form(u[:, t + 1] - u[:, t], Rd)
             constraints += [cvxpy.abs(u[1, t + 1] - u[1, t]) <=
@@ -487,11 +283,6 @@ def linear_mpc_control_orig(xref, xbar, x0, dref):
     cost += cvxpy.quad_form(xref[:, T] - x[:, T], Qf)
 
     constraints += [x[:, 0] == x0]
-    # Terminal state constraint - must be able to track the reference
-    # position at the end of the horizon within some margin of error
-    # measured by Euclidean (x,y) distance
-    DIST_TOL = 10.0
-    constraints += [cvxpy.norm(x[0:2,T] - xref[0:2,T]) <= DIST_TOL]
     constraints += [x[2, :] <= MAX_SPEED]
     constraints += [x[2, :] >= MIN_SPEED]
     constraints += [cvxpy.abs(u[0, :]) <= MAX_ACCEL]
@@ -509,87 +300,7 @@ def linear_mpc_control_orig(xref, xbar, x0, dref):
         odelta = get_nparray_from_matrix(u.value[1, :])
 
     else:
-        print("ERROR: Cannot solve MPC! CVXPY failed with status {}".format(prob.status))
-        date = "-".join([str(datetime.now().month), str(datetime.now().day)])
-        fname = "pathTrackPlot_{}".format(date)
-        plt.savefig(fname)
-        sys.exit(1)
-        oa, odelta, ox, oy, oyaw, ov = None, None, None, None, None, None
-
-    return oa, odelta, ox, oy, oyaw, ov
-
-def linear_mpc_control_angela(xref, xbar, x0, dref):
-    """
-    linear mpc control
-
-    xref: reference point
-    xbar: operational point
-    x0: initial state
-    dref: reference steer angle
-    """
-
-    x = cvxpy.Variable((NX, T + 1))
-    u = cvxpy.Variable((NU, T))
-
-    cost = 0.0
-    constraints = []
-
-    for t in range(T):
-
-        # Terminal state constraint - must be able to track the reference
-        # position at the end of the horizon within some margin of error
-        # measured by Euclidean (x,y) distance
-        DIST_TOL = 2.0
-        constraints += [cvxpy.norm(x[0:2,T] - xref[0:2,T]) <= DIST_TOL]
-        constraints += [x[2, :] <= MAX_SPEED]
-        constraints += [x[2, :] >= MIN_SPEED]
-        constraints += [cvxpy.abs(u[0, :]) <= MAX_ACCEL]
-        constraints += [cvxpy.abs(u[1, :]) <= MAX_STEER]
-
-        for tk in range(T-t):
-            if cvxpy.abs(x[:,t]) >= DIST_TOL:
-                cost += cvxpy.quad_form(u[:, t], R)
-                print('I am here')
-                if t != 0:
-                    cost += cvxpy.quad_form(xref[:, t] - x[:, t], Q)
-
-        A, B, C = get_linear_model_matrix(
-            xbar[2, t], xbar[3, t], dref[0, t])
-        # NOTE: Should not add noise directly do constraint since cvxpy
-        # should solve on the model free dynamics
-        # noise = np.random.normal(loc=0.0, scale=0.7, size=(NX))
-        constraints += [x[:, t + 1] >= A * x[:, t] + B * u[:, t] + C - MAX_NOISE]
-        constraints += [x[:, t + 1] <= A * x[:, t] + B * u[:, t] + C + MAX_NOISE]
-        # constraints += [x[:, t + 1] == A * x[:, t] + B * u[:, t] + C]
-
-
-        if t < (T - 1):
-            cost += cvxpy.quad_form(u[:, t + 1] - u[:, t], Rd)
-            constraints += [cvxpy.abs(u[1, t + 1] - u[1, t]) <=
-                            MAX_DSTEER * DT]
-
-    cost += cvxpy.quad_form(xref[:, T] - x[:, T], Qf)
-
-    constraints += [x[:, 0] == x0]
-
-
-    prob = cvxpy.Problem(cvxpy.Minimize(cost), constraints)
-    prob.solve(solver=cvxpy.ECOS, verbose=False)
-
-    if prob.status == cvxpy.OPTIMAL or prob.status == cvxpy.OPTIMAL_INACCURATE:
-        ox = get_nparray_from_matrix(x.value[0, :])
-        oy = get_nparray_from_matrix(x.value[1, :])
-        ov = get_nparray_from_matrix(x.value[2, :])
-        oyaw = get_nparray_from_matrix(x.value[3, :])
-        oa = get_nparray_from_matrix(u.value[0, :])
-        odelta = get_nparray_from_matrix(u.value[1, :])
-
-    else:
-        print("ERROR: Cannot solve MPC! CVXPY failed with status {}".format(prob.status))
-        date = "-".join([str(datetime.now().month), str(datetime.now().day)])
-        fname = "pathTrackPlot_{}".format(date)
-        plt.savefig(fname)
-        sys.exit(1)
+        print("Error: Cannot solve mpc..")
         oa, odelta, ox, oy, oyaw, ov = None, None, None, None, None, None
 
     return oa, odelta, ox, oy, oyaw, ov
@@ -648,9 +359,6 @@ def check_goal(state, goal, tind, nind):
     isstop = (abs(state.v) <= STOP_SPEED)
 
     if isgoal and isstop:
-        date = "-".join([str(datetime.now().month), str(datetime.now().day)])
-        fname = "pathTrackPlot_{}".format(date)
-        # plt.savefig(fname)
         return True
 
     return False
@@ -668,8 +376,9 @@ def do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state):
     dl: course tick [m]
 
     """
-
+    time = 0.0
     goal = [cx[-1], cy[-1]]
+    # goal = [np.sin(time), np.cos(time)]
 
     state = initial_state
 
@@ -679,7 +388,7 @@ def do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state):
     elif state.yaw - cyaw[0] <= -math.pi:
         state.yaw += math.pi * 2.0
 
-    time = 0.0
+    
     x = [state.x]
     y = [state.y]
     yaw = [state.yaw]
@@ -694,8 +403,12 @@ def do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state):
     cyaw = smooth_yaw(cyaw)
 
     while MAX_TIME >= time:
-        xref, target_ind, dref = calc_ref_trajectory(
-            state, cx, cy, cyaw, ck, sp, dl, target_ind)
+        ax = [0.0, 30.0, 35.0+10.0*np.sin(time)]
+        ay = [0.0, 0.0, 20.0+time]
+        cx, cy, cyaw, ck, s = cubic_spline_planner.calc_spline_course(
+        ax, ay, ds=dl)
+
+        xref, target_ind, dref = calc_ref_trajectory(state, cx, cy, cyaw, ck, sp, dl, target_ind)
 
         x0 = [state.x, state.y, state.v, state.yaw]  # current state
 
@@ -705,7 +418,7 @@ def do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state):
         if odelta is not None:
             di, ai = odelta[0], oa[0]
 
-        state = update_state_with_unif(state, ai, di)
+        state = update_state(state, ai, di)
         time = time + DT
 
         x.append(state.x)
@@ -715,6 +428,10 @@ def do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state):
         t.append(time)
         d.append(di)
         a.append(ai)
+
+        date = "-".join([str(datetime.now().hour), str(datetime.now().minute), str(datetime.now().second), str(datetime.now().month), str(datetime.now().day)])
+        fname = "pathTrackPlot_{}".format(date)
+        # plt.savefig(fname)
 
         if check_goal(state, goal, target_ind, len(cx)):
             print("Goal")
@@ -838,7 +555,6 @@ def get_switch_back_course(dl):
 
     return cx, cy, cyaw, ck
 
-
 def main():
     print(__file__ + " start!!")
 
@@ -847,6 +563,43 @@ def main():
     # cx, cy, cyaw, ck = get_straight_course2(dl)
     # cx, cy, cyaw, ck = get_straight_course3(dl)
     # cx, cy, cyaw, ck = get_forward_course(dl)
+    
+    cx, cy, cyaw, ck = get_switch_back_course(dl)
+
+    sp = calc_speed_profile(cx, cy, cyaw, TARGET_SPEED)
+
+    initial_state = State(x=cx[0], y=cy[0], yaw=cyaw[0], v=0.0)
+
+    t, x, y, yaw, v, d, a = do_simulation(cx, cy, cyaw, ck, sp, dl, initial_state)
+
+    if show_animation:  # pragma: no cover
+        plt.close("all")
+        plt.subplots()
+        plt.plot(cx, cy, "-r", label="spline")
+        plt.plot(x, y, "-g", label="tracking")
+        plt.grid(True)
+        plt.axis("equal")
+        plt.xlabel("x[m]")
+        plt.ylabel("y[m]")
+        plt.legend()
+
+        plt.subplots()
+        plt.plot(t, v, "-r", label="speed")
+        plt.grid(True)
+        plt.xlabel("Time [s]")
+        plt.ylabel("Speed [kmh]")
+
+        plt.show()
+
+def main3():
+    print(__file__ + " start!!")
+
+    dl = 1.0  # course tick
+    # cx, cy, cyaw, ck = get_straight_course(dl)
+    # cx, cy, cyaw, ck = get_straight_course2(dl)
+    # cx, cy, cyaw, ck = get_straight_course3(dl)
+    # cx, cy, cyaw, ck = get_forward_course(dl)
+
     cx, cy, cyaw, ck = get_switch_back_course(dl)
 
     sp = calc_speed_profile(cx, cy, cyaw, TARGET_SPEED)
