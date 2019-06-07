@@ -22,9 +22,11 @@ objective = norm(Y-0.5,1) + norm(U,1)*0.01;
 
 xk = [0;0;0];
 ops = sdpsettings;
-for i = 1:25
+cost = 0;
+for i = 1:20
     optimize([Frobust, x == xk(:,end)],h,ops);
     xk = [xk A*xk(:,end) + B*value(U(1)) + E*(-1+2*rand(1))];
+    cost = cost + value(h)
 end
 
 hold on

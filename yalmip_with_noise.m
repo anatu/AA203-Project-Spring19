@@ -21,10 +21,12 @@ objective = norm(Y-0.5,1) + norm(U,1)*0.01;
 % [Frobust,h] = robustify(F,objective);
 xk = [0;0;0];
 ops = sdpsettings;
+cost = 0;
 for i = 1:20
     optimize([F, x == xk(:,end)],objective,ops);
 %     xk = [xk A*xk(:,end) + B*value(U(1))]
     xk = [xk A*xk(:,end) + B*value(U(1)) + E*(-1+2*rand(1))];
+    cost = cost + value(objective)
 end
 hold on
 plot(C*xk)
